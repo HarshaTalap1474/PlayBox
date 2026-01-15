@@ -10,31 +10,31 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.widget.ArrayAdapter;
-import android.widget.Button;
+import android.widget.ImageButton; // Changed from Button
 import android.widget.ListView;
 import android.widget.TextView;
-import android.widget.*;
+import android.widget.Toast;
+
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+
 import java.io.IOException;
 import java.util.ArrayList;
 
 public class MainActivity extends AppCompatActivity {
 
-    // UI Components
+    // UI Components (Matching your XML IDs)
     private ListView songListView;
-    private Button btnPlay, btnPrev, btnNext;
+    private ImageButton btnPlay, btnPrev, btnNext; // ImageButtons for icons
     private TextView txtSongName;
 
     // Logic Variables
-    private ArrayList<String> songTitleList; // List of song names to show
-    private ArrayList<String> songPathList;  // List of actual file paths
+    private ArrayList<String> songTitleList;
+    private ArrayList<String> songPathList;
     private MediaPlayer mediaPlayer;
-    private int currentSongIndex = -1;       // Which song is currently selected?
-
-    // Permission Request Code
+    private int currentSongIndex = -1;
     private static final int PERMISSION_REQUEST_CODE = 1;
 
     @Override
@@ -42,65 +42,88 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // 1. Initialize UI
+        // 1. Initialize UI Views
         songListView = findViewById(R.id.songListView);
         btnPlay = findViewById(R.id.btnPlay);
         btnPrev = findViewById(R.id.btnPrev);
         btnNext = findViewById(R.id.btnNext);
         txtSongName = findViewById(R.id.txtSongName);
 
+        // 2. Initialize Logic Lists
         songTitleList = new ArrayList<>();
         songPathList = new ArrayList<>();
         mediaPlayer = new MediaPlayer();
 
-        // 2. Check Permissions before loading songs
+        // 3. Permission Check
         if (checkPermission()) {
             loadSongs();
         } else {
             requestPermission();
         }
 
-        // 3. Handle Song Selection from List
+        // 4. Handle Song Selection (Clicking a song in the list)
         songListView.setOnItemClickListener((parent, view, position, id) -> {
             playSong(position);
         });
 
-        // 4. Button Logic
+        // 5. Play/Pause Button Logic
         btnPlay.setOnClickListener(v -> {
             if (mediaPlayer.isPlaying()) {
+                // Determine logic: If playing, pause it.
                 mediaPlayer.pause();
-                btnPlay.setText("Play"); // If using a drawable, change image here
-                btnPlay.setText("Play");
+                // Change Icon to PLAY arrow
+                btnPlay.setImageResource(android.R.drawable.ic_media_play);
             } else {
-                if(currentSongIndex != -1) {
+                // If paused and a song is selected, resume.
+                if (currentSongIndex != -1) {
                     mediaPlayer.start();
-                    btnPlay.setText("Pause");
+                    // Change Icon to PAUSE bars
+                    btnPlay.setImageResource(android.R.drawable.ic_media_pause);
+                } else {
+                    // If no song is selected yet, play the first one if available
+                    if (!songPathList.isEmpty()) {
+                        playSong(0);
+                    } else {
+                        Toast.makeText(this, "No songs found", Toast.LENGTH_SHORT).show();
+                    }
                 }
             }
         });
 
+        // 6. Next Button Logic
         btnNext.setOnClickListener(v -> {
             if (currentSongIndex < songPathList.size() - 1) {
                 playSong(currentSongIndex + 1);
+            } else {
+                // Loop back to start (Optional)
+                playSong(0);
             }
         });
 
+        // 7. Previous Button Logic
         btnPrev.setOnClickListener(v -> {
             if (currentSongIndex > 0) {
                 playSong(currentSongIndex - 1);
+            }
+        });
+
+        // Listener to auto-play next song when current one ends
+        mediaPlayer.setOnCompletionListener(mp -> {
+            if (currentSongIndex < songPathList.size() - 1) {
+                playSong(currentSongIndex + 1);
             }
         });
     }
 
     // --- HELPER METHODS ---
 
-    // Load songs from device storage
     private void loadSongs() {
         ContentResolver contentResolver = getContentResolver();
         Uri songUri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+        String selection = MediaStore.Audio.Media.IS_MUSIC + "!= 0";
+        String sortOrder = MediaStore.Audio.Media.TITLE + " ASC";
 
-        // This query looks for music files
-        Cursor cursor = contentResolver.query(songUri, null, null, null, null);
+        Cursor cursor = contentResolver.query(songUri, null, selection, null, sortOrder);
 
         if (cursor != null && cursor.moveToFirst()) {
             int titleColumn = cursor.getColumnIndex(MediaStore.Audio.Media.TITLE);
@@ -109,40 +132,39 @@ public class MainActivity extends AppCompatActivity {
             do {
                 String thisTitle = cursor.getString(titleColumn);
                 String thisPath = cursor.getString(dataColumn);
-
                 songTitleList.add(thisTitle);
                 songPathList.add(thisPath);
             } while (cursor.moveToNext());
             cursor.close();
         }
 
-        // Show the list on screen using a simple Adapter
+        // Using simple list item layout for the list rows
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, songTitleList);
         songListView.setAdapter(adapter);
     }
 
-    // Logic to play audio
     private void playSong(int index) {
         try {
-            mediaPlayer.reset(); // Clean up previous resource
+            mediaPlayer.reset();
             mediaPlayer.setDataSource(songPathList.get(index));
             mediaPlayer.prepare();
             mediaPlayer.start();
 
             currentSongIndex = index;
             txtSongName.setText(songTitleList.get(index));
-            btnPlay.setText("Pause");
+
+            // Set the icon to PAUSE because the song just started playing
+            btnPlay.setImageResource(android.R.drawable.ic_media_pause);
 
         } catch (IOException e) {
             e.printStackTrace();
-            Toast.makeText(this, "Unable to play song", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Error playing song", Toast.LENGTH_SHORT).show();
         }
     }
 
-    // --- PERMISSION HANDLING ---
+    // --- PERMISSIONS (Boilerplate) ---
 
     private boolean checkPermission() {
-        // Android 13 (API 33) uses different permission
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             return ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED;
         } else {
@@ -165,7 +187,7 @@ public class MainActivity extends AppCompatActivity {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 loadSongs();
             } else {
-                Toast.makeText(this, "Permission Denied. Cannot load songs.", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Permission Required to View Songs", Toast.LENGTH_SHORT).show();
             }
         }
     }
