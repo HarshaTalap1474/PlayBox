@@ -8,10 +8,12 @@ import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
 import android.provider.MediaStore;
 import android.widget.ArrayAdapter;
-import android.widget.ImageButton; // Changed from Button
+import android.widget.ImageButton;
 import android.widget.ListView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -22,19 +24,22 @@ import androidx.core.content.ContextCompat;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends AppCompatActivity {
 
-    // UI Components (Matching your XML IDs)
+    // UI Components
     private ListView songListView;
-    private ImageButton btnPlay, btnPrev, btnNext; // ImageButtons for icons
-    private TextView txtSongName;
+    private ImageButton btnPlay, btnPrev, btnNext;
+    private TextView txtSongName, txtStartTime, txtEndTime;
+    private SeekBar seekBar;
 
     // Logic Variables
     private ArrayList<String> songTitleList;
     private ArrayList<String> songPathList;
     private MediaPlayer mediaPlayer;
     private int currentSongIndex = -1;
+    private Handler handler = new Handler(); // For updating SeekBar
     private static final int PERMISSION_REQUEST_CODE = 1;
 
     @Override
@@ -42,14 +47,17 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // 1. Initialize UI Views
+        // 1. Initialize UI
         songListView = findViewById(R.id.songListView);
         btnPlay = findViewById(R.id.btnPlay);
         btnPrev = findViewById(R.id.btnPrev);
         btnNext = findViewById(R.id.btnNext);
         txtSongName = findViewById(R.id.txtSongName);
+        txtStartTime = findViewById(R.id.txtStartTime);
+        txtEndTime = findViewById(R.id.txtEndTime);
+        seekBar = findViewById(R.id.seekBar);
 
-        // 2. Initialize Logic Lists
+        // 2. Initialize Logic
         songTitleList = new ArrayList<>();
         songPathList = new ArrayList<>();
         mediaPlayer = new MediaPlayer();
@@ -61,56 +69,64 @@ public class MainActivity extends AppCompatActivity {
             requestPermission();
         }
 
-        // 4. Handle Song Selection (Clicking a song in the list)
-        songListView.setOnItemClickListener((parent, view, position, id) -> {
-            playSong(position);
-        });
+        // 4. List Click Listener
+        songListView.setOnItemClickListener((parent, view, position, id) -> playSong(position));
 
-        // 5. Play/Pause Button Logic
+        // 5. Play Button
         btnPlay.setOnClickListener(v -> {
             if (mediaPlayer.isPlaying()) {
-                // Determine logic: If playing, pause it.
                 mediaPlayer.pause();
-                // Change Icon to PLAY arrow
                 btnPlay.setImageResource(android.R.drawable.ic_media_play);
             } else {
-                // If paused and a song is selected, resume.
                 if (currentSongIndex != -1) {
                     mediaPlayer.start();
-                    // Change Icon to PAUSE bars
                     btnPlay.setImageResource(android.R.drawable.ic_media_pause);
-                } else {
-                    // If no song is selected yet, play the first one if available
-                    if (!songPathList.isEmpty()) {
-                        playSong(0);
-                    } else {
-                        Toast.makeText(this, "No songs found", Toast.LENGTH_SHORT).show();
-                    }
+                } else if (!songPathList.isEmpty()) {
+                    playSong(0);
                 }
             }
         });
 
-        // 6. Next Button Logic
+        // 6. Next / Prev Buttons
         btnNext.setOnClickListener(v -> {
-            if (currentSongIndex < songPathList.size() - 1) {
-                playSong(currentSongIndex + 1);
-            } else {
-                // Loop back to start (Optional)
-                playSong(0);
-            }
+            if (currentSongIndex < songPathList.size() - 1) playSong(currentSongIndex + 1);
+            else playSong(0);
         });
 
-        // 7. Previous Button Logic
         btnPrev.setOnClickListener(v -> {
-            if (currentSongIndex > 0) {
-                playSong(currentSongIndex - 1);
-            }
+            if (currentSongIndex > 0) playSong(currentSongIndex - 1);
         });
 
-        // Listener to auto-play next song when current one ends
+        // 7. Auto Play Next
         mediaPlayer.setOnCompletionListener(mp -> {
-            if (currentSongIndex < songPathList.size() - 1) {
-                playSong(currentSongIndex + 1);
+            if (currentSongIndex < songPathList.size() - 1) playSong(currentSongIndex + 1);
+            else playSong(0); // Loop playlist
+        });
+
+        // 8. SEEKBAR LOGIC (New!)
+        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (fromUser) {
+                    mediaPlayer.seekTo(progress);
+                    txtStartTime.setText(formatTime(progress));
+                }
+            }
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {}
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+
+        // Start the background thread to update SeekBar
+        MainActivity.this.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+                    seekBar.setProgress(mediaPlayer.getCurrentPosition());
+                    txtStartTime.setText(formatTime(mediaPlayer.getCurrentPosition()));
+                }
+                handler.postDelayed(this, 100); // Check every 0.1 seconds
             }
         });
     }
@@ -120,10 +136,9 @@ public class MainActivity extends AppCompatActivity {
     private void loadSongs() {
         ContentResolver contentResolver = getContentResolver();
         Uri songUri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
-        String selection = MediaStore.Audio.Media.IS_MUSIC + "!= 0";
         String sortOrder = MediaStore.Audio.Media.TITLE + " ASC";
 
-        Cursor cursor = contentResolver.query(songUri, null, selection, null, sortOrder);
+        Cursor cursor = contentResolver.query(songUri, null, null, null, sortOrder);
 
         if (cursor != null && cursor.moveToFirst()) {
             int titleColumn = cursor.getColumnIndex(MediaStore.Audio.Media.TITLE);
@@ -137,8 +152,6 @@ public class MainActivity extends AppCompatActivity {
             } while (cursor.moveToNext());
             cursor.close();
         }
-
-        // Using simple list item layout for the list rows
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, songTitleList);
         songListView.setAdapter(adapter);
     }
@@ -152,9 +165,11 @@ public class MainActivity extends AppCompatActivity {
 
             currentSongIndex = index;
             txtSongName.setText(songTitleList.get(index));
-
-            // Set the icon to PAUSE because the song just started playing
             btnPlay.setImageResource(android.R.drawable.ic_media_pause);
+
+            // Set Max for SeekBar
+            seekBar.setMax(mediaPlayer.getDuration());
+            txtEndTime.setText(formatTime(mediaPlayer.getDuration()));
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -162,8 +177,16 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // --- PERMISSIONS (Boilerplate) ---
+    // Format milliseconds into MM:SS
+    private String formatTime(int msec) {
+        return String.format("%02d:%02d",
+                TimeUnit.MILLISECONDS.toMinutes(msec),
+                TimeUnit.MILLISECONDS.toSeconds(msec) -
+                        TimeUnit.MINUTES.toSeconds(TimeUnit.MILLISECONDS.toMinutes(msec))
+        );
+    }
 
+    // --- PERMISSIONS ---
     private boolean checkPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             return ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED;
@@ -187,7 +210,7 @@ public class MainActivity extends AppCompatActivity {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 loadSongs();
             } else {
-                Toast.makeText(this, "Permission Required to View Songs", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Permission Required", Toast.LENGTH_SHORT).show();
             }
         }
     }
